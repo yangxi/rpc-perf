@@ -67,7 +67,8 @@ fn main() {
             .debug()
             .log_backup()
             .unwrap_or(format!("{}.old", file));
-        Box::new(
+        output!("Debug log file {}", file);
+        Box::new(           
             File::new(&file, &backup, config.debug().log_max_size())
                 .expect("failed to open debug log file"),
         )

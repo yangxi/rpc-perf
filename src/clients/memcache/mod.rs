@@ -80,7 +80,17 @@ async fn task(work_receiver: Receiver<WorkItem>, endpoint: String, config: Confi
         if work_item == WorkItem::Reconnect {
             CONNECT_CURR.decrement();
             continue;
-        }
+        } 
+
+        let created_time = 
+            match work_item {
+                WorkItem::Reconnect => {
+                    CONNECT_CURR.decrement(); 
+                    continue;
+                }
+                WorkItem::Request { request:_, sequence:_, created_time } =>
+                    created_time,
+            };
 
         let request = RequestWithValidator::try_from(&work_item);
 
@@ -96,9 +106,14 @@ async fn task(work_receiver: Receiver<WorkItem>, endpoint: String, config: Confi
         REQUEST_OK.increment();
         request.request.compose(&mut write_buffer);
 
-        // send request
+        // send request                
         let start = Instant::now();
         s.write_all(write_buffer.borrow()).await?;
+
+//        let gap = start.duration_since(created_time).as_micros();
+//        if gap > 500 {
+//            debug!("The request waited more than 500 us in the queue {}", gap );
+//        }
 
         // clear the buffers
         write_buffer.clear();
@@ -109,7 +124,7 @@ async fn task(work_receiver: Receiver<WorkItem>, endpoint: String, config: Confi
             let remaining_time = client_config
                 .request_timeout()
                 .as_millis()
-                .saturating_sub(start.elapsed().as_millis().into());
+                .saturating_sub(created_time.elapsed().as_millis().into());
             if remaining_time == 0 {
                 break Err(ResponseError::Timeout);
             }
@@ -154,7 +169,8 @@ async fn task(work_receiver: Receiver<WorkItem>, endpoint: String, config: Confi
 
         match response {
             Ok(response) => {
-                let latency_ns = stop.duration_since(start).as_nanos();
+                let latency_ns = stop.duration_since(created_time).as_nanos();
+                let wait_latency_ns = start.duration_since(created_time).as_nanos();
 
                 // check if the response is valid
                 if (request.validator)(response).is_err() {
@@ -165,8 +181,9 @@ async fn task(work_receiver: Receiver<WorkItem>, endpoint: String, config: Confi
                     // increment success stats and latency
                     RESPONSE_OK.increment();
 
-                    let _ = REQUEST_LATENCY.increment(start, latency_ns);
+                    let _ = REQUEST_LATENCY.increment(created_time, latency_ns);
                     let _ = RESPONSE_LATENCY.increment(stop, latency_ns);
+                    let _ = WAIT_LATENCY.increment(created_time, wait_latency_ns);
 
                     // preserve the connection for the next request
                     stream = Some(s);

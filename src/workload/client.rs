@@ -2,12 +2,15 @@ use core::time::Duration;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use clocksource::Nanoseconds;
+
 #[derive(Debug, PartialEq)]
 pub enum ClientWorkItem {
     Reconnect,
     Request {
         request: ClientRequest,
         sequence: u64,
+        created_time: clocksource::Instant<Nanoseconds<u64>>,
     },
 }
 

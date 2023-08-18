@@ -7,6 +7,7 @@ use paste::paste;
 use std::concat;
 
 pub static PERCENTILES: &[(&str, f64)] = &[
+    ("min", 0.0),
     ("p25", 25.0),
     ("p50", 50.0),
     ("p75", 75.0),
@@ -14,6 +15,7 @@ pub static PERCENTILES: &[(&str, f64)] = &[
     ("p99", 99.0),
     ("p999", 99.9),
     ("p9999", 99.99),
+    ("max", 100.0),
 ];
 
 pub struct Snapshot {
@@ -202,6 +204,12 @@ macro_rules! request {
         }
     }
 }
+
+heatmap!(
+    WAIT_LATENCY,
+    "wait latency",
+    "wait latency"
+);
 
 heatmap!(
     REQUEST_LATENCY,

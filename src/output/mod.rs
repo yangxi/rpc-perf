@@ -130,15 +130,23 @@ fn client_stats(snapshot: &mut Snapshot, elapsed: f64) -> u64 {
         response_timeout as f64 / elapsed,
     );
 
-    let mut latencies = "Client Response Latency (us):".to_owned();
+    let mut latencies = "Client Request Latency (us):".to_owned();
     for (label, percentile) in PERCENTILES {
-        let value = match RESPONSE_LATENCY.percentile(*percentile) {
+        let value = match REQUEST_LATENCY.percentile(*percentile) {
             Some(Ok(b)) => format!("{}", b.high() / 1000),
             _ => "ERR".to_string(),
         };
         latencies.push_str(&format!(" {label}: {value}"))
     }
-
+    
+    latencies.push_str("Client Wait Latency (us)");
+    for (label, percentile) in PERCENTILES {
+        let value = match WAIT_LATENCY.percentile(*percentile) {
+            Some(Ok(b)) => format!("{}", b.high() / 1000),
+            _ => "ERR".to_string(),
+        };
+        latencies.push_str(&format!(" {label}: {value}"))
+    } 
     output!("{latencies}");
 
     request_ok
@@ -258,10 +266,23 @@ struct Responses {
 }
 
 #[derive(Serialize)]
+struct PercentileLatency {
+    min: u64,
+    p25: u64,
+    p50: u64,
+    p75: u64,
+    p99: u64,
+    p999: u64,
+    p9999: u64,
+    max: u64,    
+}
+
+#[derive(Serialize)]
 struct Client {
     connections: Connections,
     requests: Requests,
     responses: Responses,
+    percentile_latency: Vec<u64>,
     request_latency: CompactHistogram,
 }
 
@@ -308,6 +329,30 @@ fn heatmap_to_buckets(heatmap: &Heatmap) -> CompactHistogram {
         CompactHistogram::default()
     }
 }
+
+fn heatmap_to_percentiles(heatmap: &Heatmap) -> Vec<u64> {
+    // XXX: The heatmap corrects for wraparound and fixes indices once
+    // the heatmap is full so this returns the histogram for the last
+    // completed epoch, assuming a heatmap with a total of 60 valid
+    // histograms. However, this only kicks in after the entire histogram
+    // has been populated, so for the first minute, no histograms
+    // are returned (the histogram at offset 59 is still invalid).
+    if let Some(Some(histogram)) = heatmap.iter().map(|mut i| i.nth(59)) {
+        let mut latencies = Vec::new();
+        for (_label, percentile) in PERCENTILES {
+            let value = match histogram.percentile(*percentile) {
+                Ok(b) => b.high() / 1000,
+                _ => 0,
+            };
+            latencies.push(value)
+        }
+        latencies
+    } else {
+        Vec::new()
+    }
+}
+
+//fn heatmap_to_latencies(heatmap: Heatmap) ->
 
 pub fn json(config: Config, ratelimit: Option<&Ratelimiter>) {
     if config.general().json_output().is_none() {
@@ -385,6 +430,7 @@ pub fn json(config: Config, ratelimit: Option<&Ratelimiter>) {
                     requests,
                     responses,
                     request_latency: heatmap_to_buckets(&REQUEST_LATENCY),
+                    percentile_latency: heatmap_to_percentiles(&REQUEST_LATENCY),
                 },
                 pubsub: Pubsub {
                     publishers: Publishers {

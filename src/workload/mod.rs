@@ -29,10 +29,10 @@ pub fn launch_workload(
 ) -> Runtime {
     debug!("Launching workload...");
 
-    // spawn the request drivers on their own runtime
+    // spawn the request drivers on their own runtime    
     let workload_rt = Builder::new_multi_thread()
         .enable_all()
-        .worker_threads(1)
+        .worker_threads(config.workload().threads() + 1)
         .build()
         .expect("failed to initialize tokio runtime");
 
@@ -357,6 +357,7 @@ impl Generator {
         ClientWorkItem::Request {
             request,
             sequence: SEQUENCE_NUMBER.fetch_add(1, Ordering::Relaxed),
+            created_time: Instant::now(),
         }
     }
 
